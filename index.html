@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MCPG</title>
+<style>
+  body{font:16px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,"Helvetica Neue",Arial,sans-serif;margin:24px;color:#111}
+  h2,h3{margin:0 0 10px}
+  .row{margin:12px 0}
+  label{font-weight:600}
+  input[type=range]{width:280px;vertical-align:middle}
+  select,input[type=number]{padding:4px 6px}
+  button{padding:6px 10px;margin-right:6px}
+  .list .item{display:flex;gap:8px;align-items:center;margin:6px 0}
+  .list input.pw{flex:1;font:600 16px ui-monospace,Consolas,Menlo,monospace;padding:8px}
+  table{border-collapse:collapse;margin-top:16px;max-width:100%}
+  th,td{border:1px solid #ddd;padding:6px 8px;text-align:left;vertical-align:top}
+  thead th{background:#f6f6f6}
+  small{color:#666}
+</style>
+
+<h2>My Chemical Password Generator</h2>
+
+<div class="row">
+  <label>Length 12–32: <span id="lenVal">16</span></label><br>
+  <input id="len" type="range" min="12" max="32" value="16">
+</div>
+<div class="row">
+  <label>Leet aggressiveness (0–1): <span id="leetVal">0.30</span></label><br>
+  <input id="leet" type="range" min="0" max="1" step="0.01" value="0.30">
+</div>
+<div class="row">
+  <label>Delimiter:</label>
+  <select id="delim">
+    <option value="random">Random</option>
+    <option value="~">~</option>
+    <option value="-">-</option>
+    <option value="_">_</option>
+    <option value="=">=</option>
+    <option value="+">+</option>
+    <option value=".">.</option>
+    <option value=",">,</option>
+  </select>
+  <label style="margin-left:16px">Count:</label>
+  <input id="count" type="number" min="1" max="50" value="5">
+  <button id="gen">Generate</button>
+</div>
+
+<div class="row"><small>Format: Release, First name, Last name, divided by specified delimiter.</small></div>
+
+<div id="list" class="list"></div>
+
+<h3>Releases</h3>
+<table>
+  <thead>
+    <tr><th>#</th><th>Title</th><th>Full</th><th>Short</th><th>Tiny</th></tr>
+  </thead>
+  <tbody id="discoTable"></tbody>
+</table>
+
+<script>
+  // ===== Helpers (crypto RNG) =====
+  const rnd = n => { const x=new Uint32Array(1); let m=Math.floor(0x100000000/n)*n,r; do{crypto.getRandomValues(x);r=x[0]}while(r>=m); return r%n; };
+  const pick = a => a[rnd(a.length)];
+  const cap = s => s ? s[0].toUpperCase()+s.slice(1).toLowerCase() : s;
+  const digit = () => "0123456789"[rnd(10)];
+  const putDigit = s => { for(let i=s.length-1;i>=0;i--) if(/[A-Za-z]/.test(s[i])) return s.slice(0,i)+digit()+s.slice(i+1); return s.slice(0,-1)+digit(); };
+
+  // ===== Data (p removes '9' alt) =====
+  const ALTS = {
+    a:['a','A','4','@'], b:['b','B','6'], c:['c','C'], d:['d','D'], e:['e','E','3'],
+    f:['f','F'], g:['g','G'], h:['h','H','#'], i:['i','I','!',':'], j:['j','J',';'],
+    k:['k','K'], l:['l','L','1'], m:['m','M'], n:['n','N'], o:['o','O','0','8'],
+    p:['p','P'], q:['q','Q'], r:['r','R'], s:['s','S','5','$'], t:['t','T','7','?'],
+    u:['u','U'], v:['v','V'], w:['w','W'], x:['x','X','*'], y:['y','Y'], z:['z','Z','2']
+  };
+  const DELIMS = ["~","-","_","=","+",".",","];
+
+  // Discography tokens: [full, short, tiny]
+  const DISCO = [
+    ["lpf","likephantoms","phantoms"],
+    ["ibymbybmyl","bulletslove","bullets"],
+    ["tcfsr","threecheers","revenge"],
+    ["lotms","murderscene","scene"],
+    ["tbp","blackparade","parade"],
+    ["lar","livenrare","rare"],
+    ["tbpid","paradeisdead","dead"],
+    ["tbpbs","paradebsides","bsides"],
+    ["cw12345","conventional","weapons"],
+    ["ddttlotfk","dangerdays","killjoys"],
+    ["tmgamk","misslekid","madgear"],
+    ["mdnsy","maydeath","stop"],
+    ["lwg","livingwghosts","ghosts"],
+    ["tfod","foundations","decay"],
+    ["tpk","paperkingdom","paper"]
+  ];
+  const DISCO_FULL = [
+    "Like Phantoms, Forever",
+    "I Brought You My Bullets, You Brought Me Your Love",
+    "Three Cheers for Sweet Revenge",
+    "Life on the Murder Scene",
+    "The Black Parade",
+    "Live and Rare",
+    "The Black Parade Is Dead!",
+    "The Black Parade: B-Sides",
+    "Conventional Weapons",
+    "Danger Days: The True Lives of the Fabulous Killjoys",
+    "The Mad Gear and Missile Kid",
+    "May Death Never Stop You",
+    "Living with Ghosts",
+    "The Foundations of Decay",
+    "The Paper Kingdom"
+  ];
+
+  // Names
+  const FIRSTS = [
+    ["gerard"], ["ray","raymond"], ["frank"], ["mikey","michael"],
+    ["matt","mattew","matthew"], ["bob","robert"], ["james"]
+  ];
+  const LASTS = [
+    ["way"], ["toro"], ["iero","lero"], ["way"], ["pelissier"], ["bryar"], ["dewees"]
+  ];
+
+  // ===== Core =====
+  const leetify = (w,p) => w.split('').map(ch=>{
+    const a=ALTS[ch.toLowerCase()];
+    return (!a || rnd(1000) >= p*1000) ? ch : pick(a);
+  }).join('');
+
+  const chooseTriple = (avail, A, B, C) => {
+    let fit=null, over=null;
+    A.forEach(a=>B.forEach(b=>C.forEach(c=>{
+      const L=a.length+b.length+c.length, t=[a,b,c,L];
+      if(L<=avail && (!fit||L>fit[3])) fit=t;
+      if(!over || L<over[3]) over=t;
+    })));
+    return (fit||over).slice(0,3);
+  };
+
+  function genOne(L, p, delimChoice){
+    // Segment types: disc/first/last + first/disc/last + last/first/disc
+    const T1=pick(['D','F','L']), T2=pick(['F','D','L']), T3=pick(['L','F','D']);
+    const grp = t => t==='D'?pick(DISCO):t==='F'?pick(FIRSTS):pick(LASTS);
+
+    const delim = delimChoice==='random' ? pick(DELIMS) : delimChoice;
+    let G1=grp(T1), G2=grp(T2), G3=grp(T3);
+    let [s1,s2,s3]=chooseTriple(L-2, G1,G2,G3);
+
+    // Capitalize names for readability
+    if(T1!=='D') s1=cap(s1);
+    if(T2!=='D') s2=cap(s2);
+    if(T3!=='D') s3=cap(s3);
+
+    // Fit exact length by padding/truncating the last segment
+    let cur = s1.length+s2.length+s3.length+2; // two delimiters
+    if(cur < L){ let pad=""; while(pad.length < L-cur) pad+=digit(); s3+=pad; }
+    else if(cur > L){ s3 = s3.slice(0, s3.length-(cur-L)); }
+
+    // Leetify after shaping
+    s1=leetify(s1,p); s2=leetify(s2,p); s3=leetify(s3,p);
+
+    // Build
+    let out = s1+delim+s2+delim+s3;
+
+    // Ensure classes: digit, upper, lower, special
+    if(!/\d/.test(out)) out = putDigit(out);
+    if(!/[A-Z]/.test(out)){
+      const i=out.search(/[a-z]/); out = i>=0 ? out.slice(0,i)+out[i].toUpperCase()+out.slice(i+1)
+                                             : out.slice(0,-1)+'A';
+    }
+    if(!/[a-z]/.test(out)){
+      const i=out.search(/[A-Z]/); out = i>=0 ? out.slice(0,i)+out[i].toLowerCase()+out.slice(i+1)
+                                             : out.slice(0,-1)+'a';
+    }
+    if(!/[^A-Za-z0-9]/.test(out)){ // should not happen if delimiter is special
+      out = out.slice(0,-1) + pick(DELIMS);
+    }
+    return out;
+  }
+
+  // ===== UI wiring =====
+  const lenEl = document.getElementById('len');
+  const leetEl = document.getElementById('leet');
+  const lenVal = document.getElementById('lenVal');
+  const leetVal = document.getElementById('leetVal');
+  const delimSel = document.getElementById('delim');
+  const countEl = document.getElementById('count');
+  const list = document.getElementById('list');
+
+  function renderTable(){
+    const tb = document.getElementById('discoTable');
+    tb.innerHTML = DISCO.map((row,i)=>{
+      const [full,short,tiny] = row;
+      const title = DISCO_FULL[i] || '';
+      return `<tr><td>${i+1}</td><td>${title}</td><td><code>${full}</code></td><td><code>${short}</code></td><td><code>${tiny}</code></td></tr>`;
+    }).join('');
+  }
+
+  function genMany(){
+    const L=+lenEl.value, p=+leetEl.value;
+    const delimChoice = delimSel.value;
+    const count = Math.max(1, Math.min(50, +countEl.value||1));
+    const pwds = Array.from({length:count}, ()=> genOne(L,p,delimChoice));
+
+    list.innerHTML = pwds.map((pw,i)=>`
+      <div class="item">
+        <input class="pw" id="pw${i}" value="${pw}" readonly>
+        <button data-copy="#pw${i}">Copy</button>
+      </div>
+    `).join('');
+  }
+
+  // Copy with event delegation
+  list.addEventListener('click', e=>{
+    if(e.target.matches('button[data-copy]')){
+      const sel = e.target.getAttribute('data-copy');
+      const el = document.querySelector(sel);
+      if(el){
+        el.select(); el.setSelectionRange(0, 1e6);
+        navigator.clipboard.writeText(el.value);
+        e.target.textContent = 'Copied!';
+        setTimeout(()=> e.target.textContent='Copy', 900);
+      }
+    }
+  });
+
+  function syncUI(){
+    lenVal.textContent = lenEl.value;
+    leetVal.textContent = (+leetEl.value).toFixed(2);
+  }
+
+  document.getElementById('gen').addEventListener('click', ()=>{ syncUI(); genMany(); });
+  ['input','change'].forEach(ev=>{
+    lenEl.addEventListener(ev, ()=>{ syncUI(); genMany(); });
+    leetEl.addEventListener(ev, ()=>{ syncUI(); genMany(); });
+    delimSel.addEventListener(ev, genMany);
+    countEl.addEventListener(ev, genMany);
+  });
+
+  // Init
+  renderTable(); syncUI(); genMany();
+</script>
+</html>
+
